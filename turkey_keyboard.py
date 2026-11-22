@@ -28,6 +28,41 @@ OUTPUT_PATH = HERE / "typed_output.txt"
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
              "pose_landmarker_lite/float16/1/pose_landmarker_lite.task")
 SIM_KEYS = "1234567890-="  # 1..9, 0 means pad 10, - means 11, = means 12
+WINDOW_NAME = "Turkey Keyboard - q to quit"
+
+
+def screen_work_area():
+    """Usable screen size (excluding the taskbar), or None if unknown."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        rect = wintypes.RECT()
+        if ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(rect), 0):
+            return rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top
+    except Exception:
+        pass
+    try:
+        import tkinter
+        root = tkinter.Tk()
+        root.withdraw()
+        size = (0, 0, root.winfo_screenwidth(), root.winfo_screenheight() - 60)
+        root.destroy()
+        return size
+    except Exception:
+        return None
+
+
+def fit_window_to_screen(cv2, width, height):
+    """Shrink the preview window so the whole UI (pads + typed text) fits on screen."""
+    area = screen_work_area()
+    if not area:
+        return
+    left, top, sw, sh = area
+    title_bar = 40
+    scale = min(1.0, (sw * 0.98) / width, (sh - title_bar) / height)
+    w, h = int(width * scale), int(height * scale)
+    cv2.resizeWindow(WINDOW_NAME, w, h)
+    cv2.moveWindow(WINDOW_NAME, left + max(0, (sw - w) // 2), top)
 
 
 def load_model():
@@ -313,6 +348,10 @@ def main():
                 status = f'Text saved; OS typing failed: {exc}'
         print(status)
 
+    # Resizable window (drag the corner or maximize) that keeps the aspect ratio.
+    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+    window_fitted = False
+
     try:
         if detector is not None:
             detector.__enter__()
@@ -421,7 +460,10 @@ def main():
                              typed, status, pose_override is not None,
                              suggestion, calibration.hint if calibration.active else
                              'Accept: 0.65s | Delete: 1s | C = calibrate gestures')
-            cv2.imshow("Turkey Keyboard - q to quit", view)
+            cv2.imshow(WINDOW_NAME, view)
+            if not window_fitted:
+                fit_window_to_screen(cv2, view.shape[1], view.shape[0])
+                window_fitted = True
             k = cv2.waitKey(1) & 0xff
             if k in (27, ord('q')):
                 break
